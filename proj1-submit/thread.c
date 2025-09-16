@@ -1,5 +1,5 @@
 /*
-* Add NetID and names of all project partners
+* Charles Eshelman, cae131
 *
 */
 #include <stdio.h>
