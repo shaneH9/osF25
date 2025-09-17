@@ -62,6 +62,7 @@ int main(int argc, char *argv[]) {
     pthread_join(t2, NULL);
     pthread_join(t3, NULL);
     pthread_join(t4, NULL);
+    pthread_mutex_destroy(&mutex);
 
 
     printf("The final value of x is %d\n", x);
