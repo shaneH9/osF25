@@ -1,6 +1,6 @@
 /*
 * Charles Eshelman, cae131
-*
+* Shane Haughton, sch141
 */
 #include <stdio.h>
 #include <stdlib.h>
@@ -21,16 +21,16 @@ int loop = 10000;
  */
 void *add_counter(void *arg) {
 
-    pthread_mutex_lock(arg);
+
     int i;
 
     /* Add thread synchronizaiton logic in this function */	
 
     for(i = 0; i < loop; i++){
-
+    pthread_mutex_lock(&mutex);
 	x = x + 1;
+    pthread_mutex_unlock(&mutex);
     }
-    pthread_mutex_unlock(arg);
 
     return NULL;
 }
@@ -53,11 +53,11 @@ int main(int argc, char *argv[]) {
 
     printf("Going to run four threads to increment x up to %d\n", 4 * loop);
 
-    pthread_mutext_init(&mutex);
-    pthread_create(&t1,NULL,add_counter,(void*)&t1);
-    pthread_create(&t2,NULL,add_counter,(void*)&t2);
-    pthread_create(&t3,NULL,add_counter,(void*)&t3);
-    pthread_create(&t4,NULL,add_counter,(void*)&t4);
+    pthread_mutex_init(&mutex, NULL);
+    pthread_create(&t1,NULL,add_counter,NULL);
+    pthread_create(&t2,NULL,add_counter,NULL);
+    pthread_create(&t3,NULL,add_counter,NULL);
+    pthread_create(&t4,NULL,add_counter,NULL);
     pthread_join(t1, NULL);
     pthread_join(t2, NULL);
     pthread_join(t3, NULL);
