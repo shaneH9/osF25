@@ -19,7 +19,7 @@ static unsigned int myaddress = 4026544704;   // Binary  would be 11110000000000
  */
 static unsigned int get_top_bits(unsigned int value,  int num_bits)
 {
-	unsigned int value = num; 
+	unsigned int num = value; 
     unsigned int total_Bits = sizeof(value) * 8;
     return num >> (total_Bits - num_bits);
     
