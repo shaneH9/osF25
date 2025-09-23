@@ -19,12 +19,10 @@ static unsigned int myaddress = 4026544704;   // Binary  would be 11110000000000
  */
 static unsigned int get_top_bits(unsigned int value,  int num_bits)
 {
-	value = num; 
-    total_Bits = sizeof(value) * 8;
+	unsigned int value = num; 
+    unsigned int total_Bits = sizeof(value) * 8;
     return num >> (total_Bits - num_bits);
     
-
-	
 }
 
 
@@ -34,8 +32,7 @@ static unsigned int get_top_bits(unsigned int value,  int num_bits)
  */
 static void set_bit_at_index(char *bitmap, int index)
 {
-    int byte_index = index / 8;
-    int bit_position = index % 8;
+    
 
     bitmap[byte_index] |= (1 << bit_position);
 
