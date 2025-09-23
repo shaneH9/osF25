@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <limits.h> 
 
 #define NUM_TOP_BITS 4 //top bits to extract
 #define BITMAP_SIZE 4 //size of the bitmap array
@@ -18,7 +19,11 @@ static unsigned int myaddress = 4026544704;   // Binary  would be 11110000000000
  */
 static unsigned int get_top_bits(unsigned int value,  int num_bits)
 {
-	//Implement your code here
+	value = num; 
+    total_Bits = sizeof(value) * 8;
+    return num >> (total_Bits - num_bits);
+    
+
 	
 }
 
@@ -33,6 +38,8 @@ static void set_bit_at_index(char *bitmap, int index)
 
     return;
 }
+
+
 
 
 /* 
