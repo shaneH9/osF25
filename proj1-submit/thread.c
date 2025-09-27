@@ -20,7 +20,7 @@ int loop = 10000;
  *
  */
 void *add_counter(void *arg) {
-
+    (void)arg;
 
     int i;
 

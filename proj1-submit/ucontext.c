@@ -2,7 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <ucontext.h>
-#include <signal.h>   // for SIGSTKSZ
+#include <signal.h> // for SIGSTKSZ
 
 #define STACK_SIZE SIGSTKSZ
 
@@ -13,24 +13,26 @@ static void *w1_stack = NULL;
 // guard to detect resume into main via uc_link (after worker returns)
 static volatile int resumed_to_main = 0;
 
-//A simple worker function that simply prints and returns
-static void worker1(void) {
+// A simple worker function that simply prints and returns
+static void worker1(void)
+{
     printf("In worker: started\n");
     printf("In worker: returning (uc_link will switch back to main)\n");
 }
 
-
-
-//Function to initialize the context
+// Function to initialize the context
 static void init_context(ucontext_t *ctx, void **stack_ptr,
-                         void (*fn)(void), ucontext_t *link_ctx) {
-    if (getcontext(ctx) == -1) {
+                         void (*fn)(void), ucontext_t *link_ctx)
+{
+    if (getcontext(ctx) == -1)
+    {
         perror("getcontext");
         exit(1);
     }
 
     *stack_ptr = malloc(STACK_SIZE);
-    if (!*stack_ptr) {
+    if (!*stack_ptr)
+    {
         perror("malloc(stack)");
         exit(1);
     }
@@ -43,31 +45,28 @@ static void init_context(ucontext_t *ctx, void **stack_ptr,
     makecontext(ctx, fn, 0);
 }
 
-
-int main(void) {
+int main(void)
+{
     printf("In main: saving main context with getcontext\n");
 
-    if (getcontext(&main_ctx) == -1) {
+    if (getcontext(&main_ctx) == -1)
+    {
         perror("getcontext(main)");
         return 1;
     }
 
-    //ADD YOUR CODE HERE
-
-
-
-
-
-
-
-
     // Initialize worker context; link back to main
     init_context(&worker1_ctx, &w1_stack, worker1, &main_ctx);
+    if (resumed_to_main == 0)
+    {
+        resumed_to_main = 1;
 
-    printf("In main: transferring control to worker using setcontext\n");
-    if (setcontext(&worker1_ctx) == -1) {
-        perror("setcontext(worker1)");
-        return 1;
+        printf("In main: transferring control to worker using setcontext\n");
+        if (setcontext(&worker1_ctx) == -1)
+        {
+            perror("setcontext(worker1)");
+            return 1;
+        }
     }
 
     // Unreachable: setcontext does not return

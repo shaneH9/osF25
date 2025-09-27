@@ -1,6 +1,6 @@
 /*
-* Add NetID and names of all project partners
-*
+* Shane Haughton, sch141
+* Charlie Escelman, cae131
 */
 #include <stdio.h>
 #include <string.h>
@@ -84,6 +84,8 @@ int main () {
      */
     printf("Function 3: The value at %dth location %d\n", 
             GET_BIT_INDEX, get_bit_at_index(bitmap, GET_BIT_INDEX));
+        
+        free(bitmap);
             
     return 0;
 }
