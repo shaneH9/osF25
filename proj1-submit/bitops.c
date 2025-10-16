@@ -1,10 +1,11 @@
 /*
-* Add NetID and names of all project partners
-*
+* Shane Haughton, sch141
+* Charlie Escelman, cae131
 */
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <limits.h> 
 
 #define NUM_TOP_BITS 4 //top bits to extract
 #define BITMAP_SIZE 4 //size of the bitmap array
@@ -18,8 +19,10 @@ static unsigned int myaddress = 4026544704;   // Binary  would be 11110000000000
  */
 static unsigned int get_top_bits(unsigned int value,  int num_bits)
 {
-	//Implement your code here
-	
+	unsigned int num = value; 
+    unsigned int total_Bits = sizeof(value) * 8;
+    return num >> (total_Bits - num_bits);
+    
 }
 
 
@@ -29,10 +32,15 @@ static unsigned int get_top_bits(unsigned int value,  int num_bits)
  */
 static void set_bit_at_index(char *bitmap, int index)
 {
-    //Implement your code here	
+    int byteIndex = index / 8;
+    int bitIndex = index % 8;
+
+    bitmap[byteIndex] |= (1 << bitIndex);
 
     return;
 }
+
+
 
 
 /* 
@@ -41,9 +49,12 @@ static void set_bit_at_index(char *bitmap, int index)
  */
 static int get_bit_at_index(char *bitmap, int index)
 {
-    //Get to the location in the character bitmap array
-    //Implement your code here
-    
+    int byteIndex = index / 8;
+    int bitIndex = index % 8;
+    int bit;
+
+    bit = (bitmap[byteIndex] >> bitIndex) & 1;
+    return bit;
 }
 
 
@@ -73,6 +84,8 @@ int main () {
      */
     printf("Function 3: The value at %dth location %d\n", 
             GET_BIT_INDEX, get_bit_at_index(bitmap, GET_BIT_INDEX));
+        
+        free(bitmap);
             
     return 0;
 }
