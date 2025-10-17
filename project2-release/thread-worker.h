@@ -10,7 +10,7 @@
 #define _GNU_SOURCE
 
 /* To use Linux pthread Library in Benchmark, you have to comment the USE_WORKERS macro */
-#define USE_WORKERS 1
+//#define USE_WORKERS 1
 
 /* Targeted latency in milliseconds */
 #define TARGET_LATENCY   20  
@@ -27,19 +27,25 @@
 #include <sys/types.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <ucontext.h>
 
 typedef uint worker_t;
 
-typedef struct TCB {
-	/* add important states in a thread control block */
-	// thread Id
-	// thread status
-	// thread context
-	// thread stack
-	// thread priority
-	// And more ...
+typedef enum s { 
+    READY = 0,
+    RUNNING = 1,
+    BLOCKED = 2
+} status;
 
-	// YOUR CODE HERE
+typedef struct TCB {
+	int tID;
+	status state;
+	ucontext_t context;
+	void* stack;
+	int priority;
+    int pc;
+    struct TCB* next;
+    void* retValue;
 } tcb; 
 
 /* mutex struct definition */
@@ -52,8 +58,63 @@ typedef struct worker_mutex_t {
 /* define your data structures here: */
 // Feel free to add your own auxiliary data structures (linked list or queue etc...)
 
-// YOUR CODE HERE
+typedef struct RQ {
+    tcb* head;
+    tcb* tail;
+    int size;
+} runQueue;
 
+//runqueue functions
+void enqueue(runQueue* rq, tcb* node){
+    if(rq->head == NULL){
+        rq->head = node;
+    }
+    else{
+        rq->tail->next = node;
+        rq->tail = node;
+    }
+    rq->size++;
+}
+
+tcb* dequeue(runQueue* rq){
+    if(rq->head == NULL)
+    {
+        return NULL;
+    }
+    tcb* node = rq->head;
+    rq->head = rq->head->next;
+    if(rq->head == NULL)
+    {
+        rq->tail = NULL;
+    }
+    node->next = NULL;
+    rq->size--;
+    return node;
+}
+
+tcb* removeNode(runQueue *rq, int tID) {
+    if (rq->head == NULL) return NULL;
+    tcb* prev = NULL;
+    tcb* curr = rq->head;
+    while (curr != NULL) {
+        if (curr->tID == tID) {
+            if (prev == NULL) {
+                rq->head = curr->next;
+            } else {
+                prev->next = curr->next;
+            }
+            if (curr == rq->tail) {
+                rq->tail = prev;
+            }
+            curr->next = NULL;
+            rq->size--;
+            return curr;
+        }
+        prev = curr;
+        curr = curr->next;
+    }
+    return NULL;
+}
 
 /* Function Declarations: */
 

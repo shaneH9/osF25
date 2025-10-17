@@ -4,50 +4,80 @@
 // iLab Server:
 
 #include "thread-worker.h"
+#include <pthread.h>
 
 //Global counter for total context switches and 
 //average turn around and response time
 long tot_cntx_switches=0;
 double avg_turn_time=0;
 double avg_resp_time=0;
+int threadID = -1;
+ucontext_t schedCtx;
+tcb* current = NULL;
+runQueue rq = { .head = NULL, .tail = NULL, .size = 0 };
 
 
 // INITAILIZE ALL YOUR OTHER VARIABLES HERE
 // YOUR CODE HERE
 
 
-/* create a new thread */
 int worker_create(worker_t * thread, pthread_attr_t * attr, 
                       void *(*function)(void*), void * arg) {
+		void* stackAddress = NULL; 
+		size_t stackSize = 0;
 
-       // - create Thread Control Block (TCB)
-       // - create and initialize the context of this worker thread
-       // - allocate space of stack for this thread to run
-       // after everything is set, push this thread into run queue and 
-       // - make it ready for the execution.
+		pthread_attr_getstack(attr, &stackAddress, &stackSize);
+		if(stackSize == 0)
+		{
+			stackSize = 2048;
+		}
+		stackAddress = malloc(stackSize);
+		if(!stackAddress)
+		{
+			return -1;
+		}
 
-       // YOUR CODE HERE
-	
+		ucontext_t epicContext;
+		getcontext(&epicContext);
+		epicContext.uc_stack.ss_sp = stackAddress;
+    	epicContext.uc_stack.ss_size = stackSize;
+    	epicContext.uc_stack.ss_flags = 0;
+		makecontext(&epicContext, (void (*)(void))function, 1, arg);
+
+		tcb* block = malloc(sizeof(tcb));
+		if(block){
+			block->tID = threadID++;
+    		block->state = READY;
+    		block->context = epicContext;
+    		block->stack = stackAddress;
+    		block->next = NULL;
+			*thread = block->tID;
+			current = block;
+		}
+		else{
+			return -1;
+		}
+		enqueue(&rq,block);
+
     return 0;
 };
 
 /* give CPU possession to other user-level worker threads voluntarily */
 int worker_yield() {
-	
-	// - change worker thread's state from Running to Ready
-	// - save context of this thread to its thread control block
-	// - switch from thread context to scheduler context
+	current->state = 0;
+	getcontext(&current->context);
+	enqueue(&rq, current);
+	setcontext(&schedCtx);
 
-	// YOUR CODE HERE
-	
 	return 0;
 };
 
 /* terminate a thread */
 void worker_exit(void *value_ptr) {
-	// - de-allocate any dynamic memory created when starting this thread
-
-	// YOUR CODE HERE
+	current->state = BLOCKED;
+	current->retValue = value_ptr;
+	removeNode(&rq, current->tID);
+	setcontext(&schedCtx);
 };
 
 
@@ -142,26 +172,26 @@ static void sched_cfs(){
 	// Step6: Run the selected thread
 }
 
-
+//we need to do this i just commented it out for now
 /* scheduler */
-static void schedule() {
-	// - every time a timer interrupt occurs, your worker thread library 
-	// should be contexted switched from a thread context to this 
-	// schedule() function
+// static void schedule() {
+// 	// - every time a timer interrupt occurs, your worker thread library 
+// 	// should be contexted switched from a thread context to this 
+// 	// schedule() function
 	
-	//YOUR CODE HERE
+// 	//YOUR CODE HERE
 
-	// - invoke scheduling algorithms according to the policy (PSJF or MLFQ or CFS)
-#if defined(PSJF)
-    	sched_psjf();
-#elif defined(MLFQ)
-	sched_mlfq();
-#elif defined(CFS)
-    	sched_cfs();  
-#else
-	# error "Define one of PSJF, MLFQ, or CFS when compiling. e.g. make SCHED=MLFQ"
-#endif
-}
+// 	// - invoke scheduling algorithms according to the policy (PSJF or MLFQ or CFS)
+// #if defined(PSJF)
+//     	sched_psjf();
+// #elif defined(MLFQ)
+// 	sched_mlfq();
+// #elif defined(CFS)
+//     	sched_cfs();  
+// #else
+// 	# error "Define one of PSJF, MLFQ, or CFS when compiling. e.g. make SCHED=MLFQ"
+// #endif
+// }
 
 
 
