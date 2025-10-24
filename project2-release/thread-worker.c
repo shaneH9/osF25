@@ -16,6 +16,7 @@ int threadID = 0;
 ucontext_t schedCtx;
 tcb *current = NULL;
 minHeap rq;
+minHeap mlfq[NUMQUEUES]; 
 
 // INITAILIZE ALL YOUR OTHER VARIABLES HERE
 // YOUR CODE HERE
@@ -164,8 +165,28 @@ int worker_mutex_destroy(worker_mutex_t *mutex)
 /* Pre-emptive Shortest Job First (POLICY_PSJF) scheduling algorithm */
 static void sched_psjf()
 {
-	struct timespec arrival;
-	clock_gettime(CLOCK_MONOTONIC, &arrival);
+	tot_cntx_switches++;
+
+    // If there's a currently running thread, put it back if it's not finished
+    if (current && current->state == RUNNING) {
+        current->state = READY;
+        enqueue(&rq, current);
+    }
+
+    // INITIALIZING
+    tcb *next = dequeue(&rq);
+
+    if (!next) {
+        printf("No threads to schedule (PSJF).\n");
+        return;
+    }
+
+    next->state = RUNNING;
+    current = next;
+
+    // JUMP TO NEXT THREAD
+    setcontext(&next->context);
+	
 }
 
 /* Preemptive MLFQ scheduling algorithm */
@@ -174,7 +195,9 @@ static void sched_mlfq()
 	// - your own implementation of MLFQ
 	// (feel free to modify arguments and return types)
 
-	// YOUR CODE HERE
+	//intializing multi-queue
+	
+
 
 	/* Step-by-step guidances */
 	// Step1: Calculate the time current thread actually ran
@@ -182,6 +205,45 @@ static void sched_mlfq()
 	// Step2.2: Otherwise, push the thread back to its origin queue
 	// Step3: If time period S passes, promote all threads to the topmost queue (Rule 5)
 	// Step4: Apply RR on the topmost queue with entries and run next thread
+	
+	init_mlfq(); 
+
+    tot_cntx_switches++;
+
+    // Step 1: If current thread is still running, decide whether to demote it
+    if (current && current->state == RUNNING) {
+        // Suppose we store priority in tcb->priority (0 = highest)
+        if (current->timeQuant >= QUANTUM && current->priority < NUMQUEUES - 1) {
+            current->priority++;
+        }
+
+        current->state = READY;
+        enqueue(&mlfq[current->priority], current);
+    }
+
+    // Step 2: Find the highest non-empty queue
+    
+	int i=0; 
+    for (i = 0; i < NUMQUEUES; i++) {
+        if (mlfq[i].threads > 0)
+            break;
+    }
+
+    if (i == NUMQUEUES) {
+        printf("All queues empty (MLFQ)\n");
+        return;
+    }
+
+    // Step 3: Select the next thread
+    tcb *next = dequeue(&mlfq[i]);
+    next->state = RUNNING;
+    current = next;
+
+    // Step 4: Give it a time slice
+    current->timeQuant = QUANTUM;
+
+    // Step 5: Run it
+    setcontext(&next->context);
 }
 
 /* Completely fair scheduling algorithm */
@@ -201,6 +263,41 @@ static void sched_cfs()
 	// Step5: If the ideal time slice is smaller than minimum_granularity (MIN_SCHED_GRN), use MIN_SCHED_GRN instead
 	// Step5: Setup next time interrupt based on the time slice
 	// Step6: Run the selected thread
+    tot_cntx_switches++;
+
+    // Step 1: Update current thread's virtual runtime
+    if (current && current->state == RUNNING) {
+        // Suppose the thread ran for one quantum
+        current->timeQuant += QUANTUM;
+        current->state = READY;
+        enqueue(&rq, current);
+    }
+
+    // Step 2: Pick the thread with the smallest vruntime (timeQuant here)
+    tcb *next = dequeue(&rq);
+    if (!next) {
+        printf("No threads in CFS ready queue.\n");
+        return;
+    }
+
+    // Step 3: Compute ideal time slice based on number of threads
+    long slice = TARGET_LATENCY / (rq.threads ? rq.threads : 1);
+    if (slice < MIN_SCHED_GRN)
+        slice = MIN_SCHED_GRN;
+
+    next->state = RUNNING;
+    current = next;
+    current->timeQuant += slice;
+
+    // Step 4: Switch to the selected thread
+    setcontext(&next->context);
+
+}
+
+static void init_mlfq(){
+	for(int i=0; i<NUMQUEUES; i++){
+		initHeap(&mlfq[i], 50); 
+	}
 }
 
 /* scheduler */

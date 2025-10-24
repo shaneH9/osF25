@@ -1,8 +1,8 @@
 // File:	worker_t.h
 
-// List all group member's name:
-// username of iLab:
-// iLab Server:
+// List all group member's name: Charles Eshelman
+// username of iLab: cae131
+// iLab Server: ice.cs.rutgers.edu
 
 #ifndef WORKER_T_H
 #define WORKER_T_H
@@ -20,6 +20,9 @@
 
 /* Time slice quantum in milliseconds */
 #define QUANTUM 10
+
+/* Number of Queues in Multique Scheduler*/
+#define NUMQUEUES 8
 
 /* include lib header files that you need here: */
 #include <unistd.h>
