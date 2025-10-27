@@ -6,6 +6,7 @@
 #include "thread-worker.h"
 #include <pthread.h>
 #include <time.h>
+#include <sys/time.h>
 
 // Global counter for total context switches and
 // average turn around and response time
@@ -165,28 +166,43 @@ int worker_mutex_destroy(worker_mutex_t *mutex)
 /* Pre-emptive Shortest Job First (POLICY_PSJF) scheduling algorithm */
 static void sched_psjf()
 {
-	tot_cntx_switches++;
-
-    // If there's a currently running thread, put it back if it's not finished
-    if (current && current->state == RUNNING) {
-        current->state = READY;
-        enqueue(&rq, current);
+/* If a currently running thread is present and is still runnable, re-enqueue it.
+       We assume the timer handler already incremented current->timeQuant before jumping here. */
+    if (current) {
+        if (current->state == RUNNING) {
+            current->state = READY;
+            /* place it back in the runqueue so the heap orders by timeQuant */
+            enqueue(&rq, current);
+            current = NULL;
+        } else if (current->state == FINISHED) {
+            /* thread finished — cleanup its stack here if needed (keep TCB for join) */
+            if (current->stack) { free(current->stack); current->stack = NULL; }
+            current = NULL;
+        } else {
+            /* other states (BLOCKED/READY) — do nothing special */
+            current = NULL;
+        }
     }
 
-    // INITIALIZING
+    /* pick the thread with smallest timeQuant from min-heap rq */
     tcb *next = dequeue(&rq);
-
     if (!next) {
-        printf("No threads to schedule (PSJF).\n");
+        /* no runnable thread */
         return;
     }
 
+    /* schedule it */
     next->state = RUNNING;
     current = next;
 
-    // JUMP TO NEXT THREAD
-    setcontext(&next->context);
-	
+    /* count context switch */
+    tot_cntx_switches++;
+
+    /* switch to the chosen thread context; when it yields/exits/preempted control returns here */
+    if (swapcontext(&schedCtx, &next->context) == -1) {
+        perror("swapcontext in sched_psjf");
+        exit(1);
+    }
 }
 
 /* Preemptive MLFQ scheduling algorithm */
@@ -205,45 +221,86 @@ static void sched_mlfq()
 	// Step2.2: Otherwise, push the thread back to its origin queue
 	// Step3: If time period S passes, promote all threads to the topmost queue (Rule 5)
 	// Step4: Apply RR on the topmost queue with entries and run next thread
-	
-	init_mlfq(); 
+  /* Behavior:
+       - Each mlfq[level] is treated as a runqueue (we use your minHeap array).
+       - For a thread at level L we give timeslice = (1 << L) * 1 QUANTUM (i.e., 2^L quantums).
+       - If a thread uses up its timeslice it is demoted (priority++), unless already at lowest level.
+       - If a thread yields before its timeslice exhausted it stays at same level.
+    */
 
-    tot_cntx_switches++;
-
-    // Step 1: If current thread is still running, decide whether to demote it
-    if (current && current->state == RUNNING) {
-        // Suppose we store priority in tcb->priority (0 = highest)
-        if (current->timeQuant >= QUANTUM && current->priority < NUMQUEUES - 1) {
-            current->priority++;
+    /* If current exists, handle its state first (it was preempted or returned here) */
+    if (current) {
+        if (current->state == RUNNING) {
+            /* The timer or preemption placed us here; update and decide whether to demote/enqueue */
+            /* current->timeQuant holds elapsed QUANTUM units for this thread globally; but we track the timeslice via pc */
+            if (current->pc > 0) {
+                /* used some of its timeslice; decrease remaining and, if still remaining, keep same priority */
+                current->pc -= 1;
+                if (current->pc > 0) {
+                    /* Put it back to same priority queue as READY */
+                    current->state = READY;
+                    if (current->priority < 0) current->priority = 0;
+                    if (current->priority >= NUMQUEUES) current->priority = NUMQUEUES-1;
+                    enqueue(&mlfq[current->priority], current);
+                } else {
+                    /* timeslice exhausted -> demote */
+                    if (current->priority < NUMQUEUES - 1)
+                        current->priority += 1;
+                    current->state = READY;
+                    /* reset pc later when it's picked */
+                    current->pc = 0;
+                    enqueue(&mlfq[current->priority], current);
+                }
+            } else {
+                /* If pc == 0 (no allocated timeslice) just re-enqueue at same priority */
+                current->state = READY;
+                if (current->priority < 0) current->priority = 0;
+                if (current->priority >= NUMQUEUES) current->priority = NUMQUEUES-1;
+                enqueue(&mlfq[current->priority], current);
+            }
+            current = NULL;
+        } else if (current->state == FINISHED) {
+            /* cleanup stack (join expects to cleanup TCB) */
+            if (current->stack) { free(current->stack); current->stack = NULL; }
+            current = NULL;
+        } else {
+            /* BLOCKED/READY -> leave it be */
+            current = NULL;
         }
-
-        current->state = READY;
-        enqueue(&mlfq[current->priority], current);
     }
 
-    // Step 2: Find the highest non-empty queue
-    
-	int i=0; 
-    for (i = 0; i < NUMQUEUES; i++) {
-        if (mlfq[i].threads > 0)
-            break;
+    /* find highest-priority non-empty queue (priority 0 is highest) */
+    int chosen_level = -1;
+    for (int lvl = 0; lvl < NUMQUEUES; ++lvl) {
+        if (mlfq[lvl].threads > 0) { chosen_level = lvl; break; }
     }
-
-    if (i == NUMQUEUES) {
-        printf("All queues empty (MLFQ)\n");
+    if (chosen_level == -1) {
+        /* no runnable threads */
         return;
     }
 
-    // Step 3: Select the next thread
-    tcb *next = dequeue(&mlfq[i]);
+    /* pop next from that level's heap */
+    tcb *next = dequeue(&mlfq[chosen_level]);
+    if (!next) return;
+
+    /* determine timeslice in QUANTUM units: 2^level */
+    int timeslice_quanta = 1 << chosen_level;
+    if (timeslice_quanta <= 0) timeslice_quanta = 1;
+
+    next->priority = chosen_level;
+    next->pc = timeslice_quanta; /* remaining quantums for its current timeslice */
     next->state = RUNNING;
     current = next;
 
-    // Step 4: Give it a time slice
-    current->timeQuant = QUANTUM;
+    /* context switch counts */
+    tot_cntx_switches++;
 
-    // Step 5: Run it
-    setcontext(&next->context);
+    /* switch to chosen thread */
+    if (swapcontext(&schedCtx, &next->context) == -1) {
+        perror("swapcontext in sched_mlfq");
+        exit(1);
+    }
+	
 }
 
 /* Completely fair scheduling algorithm */
@@ -263,34 +320,85 @@ static void sched_cfs()
 	// Step5: If the ideal time slice is smaller than minimum_granularity (MIN_SCHED_GRN), use MIN_SCHED_GRN instead
 	// Step5: Setup next time interrupt based on the time slice
 	// Step6: Run the selected thread
-    tot_cntx_switches++;
+	  /* Behavior:
+       - Each mlfq[level] is treated as a runqueue (we use your minHeap array).
+       - For a thread at level L we give timeslice = (1 << L) * 1 QUANTUM (i.e., 2^L quantums).
+       - If a thread uses up its timeslice it is demoted (priority++), unless already at lowest level.
+       - If a thread yields before its timeslice exhausted it stays at same level.
+    */
 
-    // Step 1: Update current thread's virtual runtime
-    if (current && current->state == RUNNING) {
-        // Suppose the thread ran for one quantum
-        current->timeQuant += QUANTUM;
-        current->state = READY;
-        enqueue(&rq, current);
+    /* If current exists, handle its state first (it was preempted or returned here) */
+    if (current) {
+        if (current->state == RUNNING) {
+            /* The timer or preemption placed us here; update and decide whether to demote/enqueue */
+            /* current->timeQuant holds elapsed QUANTUM units for this thread globally; but we track the timeslice via pc */
+            if (current->pc > 0) {
+                /* used some of its timeslice; decrease remaining and, if still remaining, keep same priority */
+                current->pc -= 1;
+                if (current->pc > 0) {
+                    /* Put it back to same priority queue as READY */
+                    current->state = READY;
+                    if (current->priority < 0) current->priority = 0;
+                    if (current->priority >= NUMQUEUES) current->priority = NUMQUEUES-1;
+                    enqueue(&mlfq[current->priority], current);
+                } else {
+                    /* timeslice exhausted -> demote */
+                    if (current->priority < NUMQUEUES - 1)
+                        current->priority += 1;
+                    current->state = READY;
+                    /* reset pc later when it's picked */
+                    current->pc = 0;
+                    enqueue(&mlfq[current->priority], current);
+                }
+            } else {
+                /* If pc == 0 (no allocated timeslice) just re-enqueue at same priority */
+                current->state = READY;
+                if (current->priority < 0) current->priority = 0;
+                if (current->priority >= NUMQUEUES) current->priority = NUMQUEUES-1;
+                enqueue(&mlfq[current->priority], current);
+            }
+            current = NULL;
+        } else if (current->state == FINISHED) {
+            /* cleanup stack (join expects to cleanup TCB) */
+            if (current->stack) { free(current->stack); current->stack = NULL; }
+            current = NULL;
+        } else {
+            /* BLOCKED/READY -> leave it be */
+            current = NULL;
+        }
     }
 
-    // Step 2: Pick the thread with the smallest vruntime (timeQuant here)
-    tcb *next = dequeue(&rq);
-    if (!next) {
-        printf("No threads in CFS ready queue.\n");
+    /* find highest-priority non-empty queue (priority 0 is highest) */
+    int chosen_level = -1;
+    for (int lvl = 0; lvl < NUMQUEUES; ++lvl) {
+        if (mlfq[lvl].threads > 0) { chosen_level = lvl; break; }
+    }
+    if (chosen_level == -1) {
+        /* no runnable threads */
         return;
     }
 
-    // Step 3: Compute ideal time slice based on number of threads
-    long slice = TARGET_LATENCY / (rq.threads ? rq.threads : 1);
-    if (slice < MIN_SCHED_GRN)
-        slice = MIN_SCHED_GRN;
+    /* pop next from that level's heap */
+    tcb *next = dequeue(&mlfq[chosen_level]);
+    if (!next) return;
 
+    /* determine timeslice in QUANTUM units: 2^level */
+    int timeslice_quanta = 1 << chosen_level;
+    if (timeslice_quanta <= 0) timeslice_quanta = 1;
+
+    next->priority = chosen_level;
+    next->pc = timeslice_quanta; /* remaining quantums for its current timeslice */
     next->state = RUNNING;
     current = next;
-    current->timeQuant += slice;
 
-    // Step 4: Switch to the selected thread
-    setcontext(&next->context);
+    /* context switch counts */
+    tot_cntx_switches++;
+
+    /* switch to chosen thread */
+    if (swapcontext(&schedCtx, &next->context) == -1) {
+        perror("swapcontext in sched_mlfq");
+        exit(1);
+    }
 
 }
 
@@ -308,8 +416,30 @@ static void schedule()
 	// schedule() function
 
 	// YOUR CODE HERE
+	struct itimerval timerOff = {0};	
+    memset(&timerOff, 0, sizeof(timerOff));
+    setitimer(ITIMER_VIRTUAL, &timerOff, NULL); 
 
-	// - invoke scheduling algorithms according to the policy (PSJF or MLFQ or CFS)
+    //CHECKING IF CURRENT THREAD IS YIELDED 
+    if(current){
+        if (current->state = RUNNING){
+            current->state = READY;
+            enqueue(&rq, current); 
+        }
+        else if(current->state = FINISHED){
+            if(current->stack){
+                free(current->stack);
+                current->stack = NULL;
+            }
+            current = NULL; 
+        }
+        else{
+            current = NULL; 
+        }
+    }
+
+
+    // - invoke scheduling algorithms according to the policy (PSJF or MLFQ or CFS)
 #if defined(PSJF)
 	sched_psjf();
 #elif defined(MLFQ)
@@ -319,6 +449,8 @@ static void schedule()
 #else
 	// error: #Define one of PSJF, MLFQ, or CFS when compiling. e.g. make SCHED=MLFQ"
 #endif
+
+
 }
 
 // DO NOT MODIFY THIS FUNCTION
