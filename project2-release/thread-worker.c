@@ -410,11 +410,11 @@ static void schedule()
 
     //CHECKING IF CURRENT THREAD IS YIELDED 
     if(current){
-        if (current->state = RUNNING){
+        if (current->state == RUNNING){
             current->state = READY;
             enqueue(&rq, current); 
         }
-        else if(current->state = FINISHED){
+        else if(current->state == FINISHED){
             if(current->stack){
                 free(current->stack);
                 current->stack = NULL;
