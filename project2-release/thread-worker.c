@@ -22,6 +22,17 @@ minHeap mlfq[NUMQUEUES];
 // INITAILIZE ALL YOUR OTHER VARIABLES HERE
 // YOUR CODE HERE
 
+int initHeap(minHeap *h, int capacity) {
+    h->arr = malloc(sizeof(tcb*) * capacity);
+    if (!h->arr) {
+        return -1;
+    }
+    h->threads = 0;
+    h->threshold = capacity;
+	return 0;
+}
+
+
 int worker_create(worker_t *thread, pthread_attr_t *attr,
 				  void *(*function)(void *), void *arg)
 {
@@ -202,6 +213,15 @@ static void sched_psjf()
     }
 }
 
+static void init_mlfq(){
+	for(int i=0; i<NUMQUEUES; i++){
+		initHeap(&mlfq[i], 50); 
+	}
+}
+
+
+
+
 /* Preemptive MLFQ scheduling algorithm */
 static void sched_mlfq()
 {
@@ -221,16 +241,15 @@ static void sched_mlfq()
        - If a thread yields before its timeslice exhausted it stays at same level.
     */
 
+   init_mlfq(); 
+
     //CHECKING FOR CURRENT THREAD
     if (current) {
         if (current->state == RUNNING) {
-            /* The timer or preemption placed us here; update and decide whether to demote/enqueue */
-            /* current->timeQuant holds elapsed QUANTUM units for this thread globally; but we track the timeslice via pc */
             if (current->pc > 0) {
-                /* used some of its timeslice; decrease remaining and, if still remaining, keep same priority */
                 current->pc -= 1;
                 if (current->pc > 0) {
-                    /* Put it back to same priority queue as READY */
+                    /* PUT BACK IN PRIORITY QUEUE */
                     current->state = READY;
                     if (current->priority < 0) current->priority = 0;
                     if (current->priority >= NUMQUEUES) current->priority = NUMQUEUES-1;
@@ -296,6 +315,8 @@ static void sched_mlfq()
     }
 	
 }
+
+
 
 /* Completely fair scheduling algorithm */
 static void sched_cfs()
@@ -390,11 +411,6 @@ static void sched_cfs()
 
 }
 
-static void init_mlfq(){
-	for(int i=0; i<NUMQUEUES; i++){
-		initHeap(&mlfq[i], 50); 
-	}
-}
 
 /* scheduler */
 static void schedule()
