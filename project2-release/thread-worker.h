@@ -12,6 +12,7 @@
 /* To use Linux pthread Library in Benchmark, you have to comment the USE_WORKERS macro */
 // #define USE_WORKERS 1
 
+
 /* Targeted latency in milliseconds */
 #define TARGET_LATENCY 20
 
@@ -32,7 +33,7 @@
 #include <stdlib.h>
 #include <ucontext.h>
 
-typedef uint worker_t;
+typedef int worker_t;
 
 typedef enum s
 {

@@ -1,12 +1,12 @@
 // File:	thread-worker.c
-// List all group member's name:
-// username of iLab:
-// iLab Server:
+// List all group member's name: Charles Eshelman, Shane Haughton
+// username of iLab: cae131
+// iLab Server: ice.cs.rutgers.edu
 
 #include "thread-worker.h"
-#include <pthread.h>
 #include <time.h>
 #include <sys/time.h>
+#include <string.h>
 
 // Global counter for total context switches and
 // average turn around and response time
@@ -166,39 +166,36 @@ int worker_mutex_destroy(worker_mutex_t *mutex)
 /* Pre-emptive Shortest Job First (POLICY_PSJF) scheduling algorithm */
 static void sched_psjf()
 {
-/* If a currently running thread is present and is still runnable, re-enqueue it.
-       We assume the timer handler already incremented current->timeQuant before jumping here. */
     if (current) {
         if (current->state == RUNNING) {
             current->state = READY;
-            /* place it back in the runqueue so the heap orders by timeQuant */
             enqueue(&rq, current);
             current = NULL;
         } else if (current->state == FINISHED) {
-            /* thread finished — cleanup its stack here if needed (keep TCB for join) */
+            // DEALLOCATE FINSIHED THREAD
             if (current->stack) { free(current->stack); current->stack = NULL; }
             current = NULL;
         } else {
-            /* other states (BLOCKED/READY) — do nothing special */
             current = NULL;
         }
     }
 
-    /* pick the thread with smallest timeQuant from min-heap rq */
+    // PICK NEW THREAD WITH SMALLEST QUANTUM
     tcb *next = dequeue(&rq);
     if (!next) {
         /* no runnable thread */
         return;
     }
 
-    /* schedule it */
+    //SCHEDULE NEW CONTEXT
     next->state = RUNNING;
     current = next;
 
-    /* count context switch */
+    //ITERATE CONTEXT SWITCH
     tot_cntx_switches++;
 
     /* switch to the chosen thread context; when it yields/exits/preempted control returns here */
+    //SWITCH TO NEW CONTEXT
     if (swapcontext(&schedCtx, &next->context) == -1) {
         perror("swapcontext in sched_psjf");
         exit(1);
@@ -210,10 +207,6 @@ static void sched_mlfq()
 {
 	// - your own implementation of MLFQ
 	// (feel free to modify arguments and return types)
-
-	//intializing multi-queue
-	
-
 
 	/* Step-by-step guidances */
 	// Step1: Calculate the time current thread actually ran
@@ -228,7 +221,7 @@ static void sched_mlfq()
        - If a thread yields before its timeslice exhausted it stays at same level.
     */
 
-    /* If current exists, handle its state first (it was preempted or returned here) */
+    //CHECKING FOR CURRENT THREAD
     if (current) {
         if (current->state == RUNNING) {
             /* The timer or preemption placed us here; update and decide whether to demote/enqueue */
@@ -243,16 +236,16 @@ static void sched_mlfq()
                     if (current->priority >= NUMQUEUES) current->priority = NUMQUEUES-1;
                     enqueue(&mlfq[current->priority], current);
                 } else {
-                    /* timeslice exhausted -> demote */
+                    /* DEMOTE DUE TO TIMESLICE EXHAUSTION*/
                     if (current->priority < NUMQUEUES - 1)
                         current->priority += 1;
                     current->state = READY;
-                    /* reset pc later when it's picked */
+                    /* RESET PC */
                     current->pc = 0;
                     enqueue(&mlfq[current->priority], current);
                 }
             } else {
-                /* If pc == 0 (no allocated timeslice) just re-enqueue at same priority */
+                // PROGRAM COUNTER = 0 case
                 current->state = READY;
                 if (current->priority < 0) current->priority = 0;
                 if (current->priority >= NUMQUEUES) current->priority = NUMQUEUES-1;
@@ -260,30 +253,31 @@ static void sched_mlfq()
             }
             current = NULL;
         } else if (current->state == FINISHED) {
-            /* cleanup stack (join expects to cleanup TCB) */
+            //DEALLOCATION 
             if (current->stack) { free(current->stack); current->stack = NULL; }
             current = NULL;
         } else {
-            /* BLOCKED/READY -> leave it be */
+            /* BLOCKED/READY */
             current = NULL;
         }
     }
 
-    /* find highest-priority non-empty queue (priority 0 is highest) */
+
+    //FINDING HIGHEST PRIOTIRTY NON-EMPTY QUEUE
     int chosen_level = -1;
     for (int lvl = 0; lvl < NUMQUEUES; ++lvl) {
         if (mlfq[lvl].threads > 0) { chosen_level = lvl; break; }
     }
     if (chosen_level == -1) {
-        /* no runnable threads */
         return;
     }
 
-    /* pop next from that level's heap */
+    //SELECT FROM CHOSEN LEVELS HEAP
     tcb *next = dequeue(&mlfq[chosen_level]);
     if (!next) return;
 
-    /* determine timeslice in QUANTUM units: 2^level */
+    
+    //DETERMINING TIMESLICE
     int timeslice_quanta = 1 << chosen_level;
     if (timeslice_quanta <= 0) timeslice_quanta = 1;
 
@@ -292,7 +286,7 @@ static void sched_mlfq()
     next->state = RUNNING;
     current = next;
 
-    /* context switch counts */
+    /* ITERATE CONTEXT SWITCH*/
     tot_cntx_switches++;
 
     /* switch to chosen thread */
@@ -308,8 +302,6 @@ static void sched_cfs()
 {
 	// - your own implementation of CFS
 	// (feel free to modify arguments and return types)
-
-	// YOUR CODE HERE
 
 	/* Step-by-step guidances */
 
@@ -330,28 +322,25 @@ static void sched_cfs()
     /* If current exists, handle its state first (it was preempted or returned here) */
     if (current) {
         if (current->state == RUNNING) {
-            /* The timer or preemption placed us here; update and decide whether to demote/enqueue */
-            /* current->timeQuant holds elapsed QUANTUM units for this thread globally; but we track the timeslice via pc */
             if (current->pc > 0) {
-                /* used some of its timeslice; decrease remaining and, if still remaining, keep same priority */
                 current->pc -= 1;
                 if (current->pc > 0) {
-                    /* Put it back to same priority queue as READY */
+                    /* PLACE BACK IN PRIORITY QUEUE SET READY */
                     current->state = READY;
                     if (current->priority < 0) current->priority = 0;
                     if (current->priority >= NUMQUEUES) current->priority = NUMQUEUES-1;
                     enqueue(&mlfq[current->priority], current);
                 } else {
-                    /* timeslice exhausted -> demote */
+                    /* DEMOTION DUE TO EXHAUSTED TIME SLICE*/
                     if (current->priority < NUMQUEUES - 1)
                         current->priority += 1;
                     current->state = READY;
-                    /* reset pc later when it's picked */
+                    /* PC COUNTER RESET */
                     current->pc = 0;
                     enqueue(&mlfq[current->priority], current);
                 }
             } else {
-                /* If pc == 0 (no allocated timeslice) just re-enqueue at same priority */
+                /* PC = 0 CASE */
                 current->state = READY;
                 if (current->priority < 0) current->priority = 0;
                 if (current->priority >= NUMQUEUES) current->priority = NUMQUEUES-1;
@@ -359,30 +348,29 @@ static void sched_cfs()
             }
             current = NULL;
         } else if (current->state == FINISHED) {
-            /* cleanup stack (join expects to cleanup TCB) */
+            /* DEALLOCATION */
             if (current->stack) { free(current->stack); current->stack = NULL; }
             current = NULL;
         } else {
-            /* BLOCKED/READY -> leave it be */
+            /* BLOCKED OR READY */
             current = NULL;
         }
     }
 
-    /* find highest-priority non-empty queue (priority 0 is highest) */
+    /* FINDING HIGHEST PRIORITY NON EMPTY QUEUE */
     int chosen_level = -1;
     for (int lvl = 0; lvl < NUMQUEUES; ++lvl) {
         if (mlfq[lvl].threads > 0) { chosen_level = lvl; break; }
     }
     if (chosen_level == -1) {
-        /* no runnable threads */
         return;
     }
 
-    /* pop next from that level's heap */
+    /* TAKE NEXT FROM LEVELS HEAP */
     tcb *next = dequeue(&mlfq[chosen_level]);
     if (!next) return;
 
-    /* determine timeslice in QUANTUM units: 2^level */
+    /* DETERMINE TIMESLICE */
     int timeslice_quanta = 1 << chosen_level;
     if (timeslice_quanta <= 0) timeslice_quanta = 1;
 
@@ -391,10 +379,10 @@ static void sched_cfs()
     next->state = RUNNING;
     current = next;
 
-    /* context switch counts */
+    /* ITERATE CONTEXT SWITCH */
     tot_cntx_switches++;
 
-    /* switch to chosen thread */
+    /* SWITCH TO NEW CHOSEN THREAD */
     if (swapcontext(&schedCtx, &next->context) == -1) {
         perror("swapcontext in sched_mlfq");
         exit(1);
@@ -473,6 +461,3 @@ int initHeap(minHeap *h, int capacity) {
 	return 0;
 }
 
-int main() {
-	initHeap(&rq, 50);
-}

@@ -1,8 +1,12 @@
+#define _POSIX_C_SOURCE 199309L
+
+#include <time.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <signal.h>
+
 
 #include <pthread.h>
 #include "../thread-worker.h"
