@@ -1,6 +1,6 @@
 // File:	worker_t.h
 
-// List all group member's name: Charles Eshelman
+// List all group member's name: Charles Eshelman, Shane Haugton
 // username of iLab: cae131
 // iLab Server: ice.cs.rutgers.edu
 
