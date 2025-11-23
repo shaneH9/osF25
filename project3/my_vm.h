@@ -39,15 +39,15 @@
 //COMPLETE HERE
 
 // --- Constants for bit shifts and masks ---
-#define PDXSHIFT      /** TODO: number of bits to shift for directory index **/
-#define PTXSHIFT      /** TODO: number of bits to shift for table index **/
-#define PXMASK        /** TODO:  **/
-#define OFFMASK       /** TODO: **/
+#define PDXSHIFT 22  /** TODO: number of bits to shift for directory index **/
+#define PTXSHIFT 12     /** TODO: number of bits to shift for table index **/
+#define PXMASK 0x3FF       /** TODO:  **/
+#define OFFMASK 0xFFF       /** TODO: **/
 
 // --- Macros to extract address components ---
-#define PDX(va)       /** TODO: compute directory index from virtual address **/
-#define PTX(va)       /** TODO: compute table index from virtual address **/
-#define OFF(va)       /** TODO: compute page offset from virtual address **/
+#define PDX(va) (((uint32_t)(va) >> PDXSHIFT) & PXMASK) /** TODO: compute directory index from virtual address **/
+#define PTX(va) (((uint32_t)(va) >> PTXSHIFT) & PXMASK) /** TODO: compute table index from virtual address **/
+#define OFF(va) ((uint32_t)(va) & OFFMASK) /** TODO: compute page offset from virtual address **/
 // -----------------------------------------------------------------------------
 //  Type Definitions
 // -----------------------------------------------------------------------------
@@ -61,7 +61,7 @@ typedef uint32_t pde_t;       // Page directory entry
 //  Page Table Flags (Students fill as needed)
 // -----------------------------------------------------------------------------
 
-#define PFN_SHIFT     /** TODO: number of bits to shift**/
+#define PFN_SHIFT 12     /** TODO: number of bits to shift**/
 
 // -----------------------------------------------------------------------------
 //  Address Conversion Helpers (Provided)

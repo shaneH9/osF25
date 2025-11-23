@@ -11,6 +11,10 @@ struct tlb tlb_store; // Placeholder for your TLB structure
 // Optional counters for TLB statistics
 static unsigned long long tlb_lookups = 0;
 static unsigned long long tlb_misses  = 0;
+void *phys_mem = NULL;
+uint8_t *phys_bitmap = NULL;
+uint8_t *virt_bitmap = NULL;
+pde_t *pgdir = NULL;
 
 // -----------------------------------------------------------------------------
 // Setup
@@ -25,8 +29,32 @@ static unsigned long long tlb_misses  = 0;
  * Errors should be handled internally (e.g., failed allocation).
  */
 void set_physical_mem(void) {
-    // TODO: Implement memory allocation for simulated physical memory.
-    // Use 32-bit values for sizes, page counts, and offsets.
+    phys_mem = malloc(MEMSIZE);
+    if (!phys_mem) {
+        exit(1);
+    }
+
+    memset(phys_mem, 0, MEMSIZE);
+
+    uint32_t num_phys_pages = MEMSIZE / PGSIZE;
+    phys_bitmap = calloc(num_phys_pages, 1);
+
+    if (!phys_bitmap) {
+        exit(1);
+    }
+
+    uint32_t num_virt_pages = MAX_MEMSIZE / PGSIZE;
+    virt_bitmap = calloc(num_virt_pages, 1);
+
+    if (!virt_bitmap) {
+        exit(1);
+    }
+
+    pgdir = calloc(1024, sizeof(pde_t));
+
+    if (!pgdir) {
+        exit(1);
+    }
 }
 
 // -----------------------------------------------------------------------------
