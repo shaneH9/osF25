@@ -123,10 +123,31 @@ void print_TLB_missrate(void)
  */
 pte_t *translate(pde_t *pgdir, void *va)
 {
-    // TODO: Extract the 32-bit virtual address and compute indices
-    // for the page directory, page table, and offset.
-    // Return the corresponding PTE if found.
-    return NULL; // Translation unsuccessful placeholder.
+    vaddr32_t vaddr = VA2U(va);
+    uint32_t pdIndex = PDX(vaddr);
+    uint32_t pt_index = PTX(vaddr);
+
+    pte_t *pte = TLB_check(va);
+    if (pte != NULL) {
+        return pte;
+    }
+
+    pde_t pde = pgdir[pdIndex];
+    if (pde == 0) {
+        return NULL; 
+    }
+
+    pte_t *pt = (pte_t *)U2VA(pde);
+
+    pte_t *pte_ptr = &pt[pt_index];
+
+    if (*pte_ptr == 0) {
+        return NULL;
+    }
+
+    TLB_add(va, U2VA(*pte_ptr));
+
+    return pte_ptr;
 }
 
 /*
@@ -141,8 +162,40 @@ pte_t *translate(pde_t *pgdir, void *va)
  */
 int map_page(pde_t *pgdir, void *va, void *pa)
 {
-    // TODO: Map virtual address to physical address in the page tables.
-    return -1; // Failure placeholder.
+    vaddr32_t vaddr = VA2U(va);
+    paddr32_t paddr = VA2U(pa);
+    uint32_t pd_index, pt_index;
+    pde_t pde;
+    pte_t *pt;
+    pte_t *pte_ptr;
+    pte_t *new_pt;
+
+    if ( (vaddr & OFFMASK) != 0 || (paddr & OFFMASK) != 0 )
+        return -1;
+
+    pd_index = PDX(vaddr);
+    pt_index = PTX(vaddr);
+
+    pde = pgdir[pd_index];
+
+    if (pde == 0) {
+        new_pt = (pte_t *) calloc(PGSIZE / sizeof(pte_t), sizeof(pte_t)); // calloc zeros entries
+        if (!new_pt)
+            return -1;
+
+        pgdir[pd_index] = VA2U((void *)new_pt) & ~OFFMASK;
+        pde = pgdir[pd_index];
+    }
+
+    pt = (pte_t *) U2VA((pde >> PFN_SHIFT) << PFN_SHIFT);
+
+    pte_ptr = &pt[pt_index];
+
+    if (*pte_ptr != 0)
+        return -1;
+
+    *pte_ptr = (paddr & ~OFFMASK);
+    return -1; 
 }
 
 // -----------------------------------------------------------------------------
