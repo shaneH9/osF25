@@ -48,7 +48,6 @@
 #define PDX(va)       /** TODO: compute directory index from virtual address **/
 #define PTX(va)       /** TODO: compute table index from virtual address **/
 #define OFF(va)       /** TODO: compute page offset from virtual address **/
-
 // -----------------------------------------------------------------------------
 //  Type Definitions
 // -----------------------------------------------------------------------------
