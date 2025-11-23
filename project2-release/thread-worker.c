@@ -39,7 +39,6 @@ int worker_create(worker_t *thread, pthread_attr_t *attr,
 	void *stackAddress = NULL;
 	size_t stackSize = 0;
 
-	pthread_attr_getstack(attr, &stackAddress, &stackSize);
 	if (stackSize == 0)
 	{
 		stackSize = 2048 * 32;

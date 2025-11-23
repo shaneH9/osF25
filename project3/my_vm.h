@@ -91,7 +91,12 @@ struct tlb {
      *   bool valid;
      *   uint64_t last_used;
      */
+    uint32_t vpn;
+    uint32_t pfn; 
+    bool valid;
+    uint64_t last_used;
 };
+
 
 extern struct tlb tlb_store;
 
