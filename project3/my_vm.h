@@ -132,7 +132,7 @@ void print_TLB_missrate(void);
  * Translates a virtual address to a physical address.
  * Return: pointer to PTE if successful; NULL otherwise.
  */
-pte_t *translate(pde_t *pgdir, void *va);
+pte_t* translate(pde_t *pgdir, void *va);
 
 /*
  * Creates a mapping between a virtual and a physical page.
@@ -179,4 +179,3 @@ void get_data(void *va, void *val, int size);
 void mat_mult(void *mat1, void *mat2, int size, void *answer);
 
 #endif // MY_VM_H_INCLUDED
-
