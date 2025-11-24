@@ -1,16 +1,14 @@
 
 #include "my_vm.h"
-#include <string.h>   // optional for memcpy if you later implement put/get
-
+#include <string.h> // optional for memcpy if you later implement put/get
 // -----------------------------------------------------------------------------
 // Global Declarations (optional)
 // -----------------------------------------------------------------------------
 
-struct tlb tlb_store; // Placeholder for your TLB structure
-
+struct tlb tlbGlobal[TLB_ENTRIES];
 // Optional counters for TLB statistics
 static unsigned long long tlb_lookups = 0;
-static unsigned long long tlb_misses  = 0;
+static unsigned long long tlb_misses = 0;
 void *phys_mem = NULL;
 uint8_t *phys_bitmap = NULL;
 uint8_t *virt_bitmap = NULL;
@@ -28,9 +26,11 @@ pde_t *pgdir = NULL;
  * Return value: None.
  * Errors should be handled internally (e.g., failed allocation).
  */
-void set_physical_mem(void) {
+void set_physical_mem(void)
+{
     phys_mem = malloc(MEMSIZE);
-    if (!phys_mem) {
+    if (!phys_mem)
+    {
         exit(1);
     }
 
@@ -39,20 +39,23 @@ void set_physical_mem(void) {
     uint32_t num_phys_pages = MEMSIZE / PGSIZE;
     phys_bitmap = calloc(num_phys_pages, 1);
 
-    if (!phys_bitmap) {
+    if (!phys_bitmap)
+    {
         exit(1);
     }
 
     uint32_t num_virt_pages = MAX_MEMSIZE / PGSIZE;
     virt_bitmap = calloc(num_virt_pages, 1);
 
-    if (!virt_bitmap) {
+    if (!virt_bitmap)
+    {
         exit(1);
     }
 
     pgdir = calloc(1024, sizeof(pde_t));
 
-    if (!pgdir) {
+    if (!pgdir)
+    {
         exit(1);
     }
 }
@@ -73,8 +76,45 @@ void set_physical_mem(void) {
  */
 int TLB_add(void *va, void *pa)
 {
-    // TODO: Implement TLB insertion logic.
-    return -1; // Currently returns failure placeholder.
+    if (va == NULL || pa == NULL)
+        return -1;
+
+    vaddr32_t vaddr = VA2U(va);
+    vaddr32_t vpn = vaddr >> PFN_SHIFT;
+    vaddr32_t pfn = VA2U(pa) >> PFN_SHIFT;
+
+    int i;
+    for (i = 0; i < TLB_ENTRIES; i++)
+    {
+        if (!tlbGlobal[i].valid)
+        {
+            tlbGlobal[i].vpn = vpn;
+            tlbGlobal[i].pfn = pfn;
+            tlbGlobal[i].valid = true;
+            tlbGlobal[i].last_used = ++tlb_lookups;
+            return 0;
+        }
+    }
+
+    // LRU replacement
+    int lru_index = 0;
+    uint64_t min_time = tlbGlobal[0].last_used;
+
+    for (i = 1; i < TLB_ENTRIES; i++)
+    {
+        if (tlbGlobal[i].last_used < min_time)
+        {
+            min_time = tlbGlobal[i].last_used;
+            lru_index = i;
+        }
+    }
+
+    tlbGlobal[lru_index].vpn = vpn;
+    tlbGlobal[lru_index].pfn = pfn;
+    tlbGlobal[lru_index].valid = true;
+    tlbGlobal[lru_index].last_used = ++tlb_lookups;
+
+    return 0;
 }
 
 /*
@@ -88,8 +128,25 @@ int TLB_add(void *va, void *pa)
  */
 pte_t *TLB_check(void *va)
 {
-    // TODO: Implement TLB lookup.
-    return NULL; // Currently returns TLB miss.
+    if (!va)
+        return NULL;
+
+    vaddr32_t vpn = VA2U(va) >> PFN_SHIFT;
+
+    for (int i = 0; i < TLB_ENTRIES; i++)
+    {
+        if (tlbGlobal[i].valid && tlbGlobal[i].vpn == vpn)
+        {
+            tlbGlobal[i].last_used = ++tlb_lookups;
+
+            paddr32_t pa = tlbGlobal[i].pfn << PFN_SHIFT;
+            return (pte_t *)U2VA(pa);
+        }
+    }
+
+    // TLB miss
+    tlb_misses++;
+    return NULL;
 }
 
 /*
@@ -101,7 +158,7 @@ pte_t *TLB_check(void *va)
  */
 void print_TLB_missrate(void)
 {
-    double miss_rate = 0.0;
+    double miss_rate = (tlb_lookups == 0) ? 0.0 : ((double)tlb_misses / tlb_lookups);
     // TODO: Calculate miss rate as (tlb_misses / tlb_lookups).
     fprintf(stderr, "TLB miss rate %lf \n", miss_rate);
 }
@@ -128,20 +185,23 @@ pte_t *translate(pde_t *pgdir, void *va)
     uint32_t pt_index = PTX(vaddr);
 
     pte_t *pte = TLB_check(va);
-    if (pte != NULL) {
+    if (pte != NULL)
+    {
         return pte;
     }
 
     pde_t pde = pgdir[pdIndex];
-    if (pde == 0) {
-        return NULL; 
+    if (pde == 0)
+    {
+        return NULL;
     }
 
     pte_t *pt = (pte_t *)U2VA(pde);
 
     pte_t *pte_ptr = &pt[pt_index];
 
-    if (*pte_ptr == 0) {
+    if (*pte_ptr == 0)
+    {
         return NULL;
     }
 
@@ -170,7 +230,7 @@ int map_page(pde_t *pgdir, void *va, void *pa)
     pte_t *pte_ptr;
     pte_t *new_pt;
 
-    if ( (vaddr & OFFMASK) != 0 || (paddr & OFFMASK) != 0 )
+    if ((vaddr & OFFMASK) != 0 || (paddr & OFFMASK) != 0)
         return -1;
 
     pd_index = PDX(vaddr);
@@ -178,8 +238,9 @@ int map_page(pde_t *pgdir, void *va, void *pa)
 
     pde = pgdir[pd_index];
 
-    if (pde == 0) {
-        new_pt = (pte_t *) calloc(PGSIZE / sizeof(pte_t), sizeof(pte_t)); // calloc zeros entries
+    if (pde == 0)
+    {
+        new_pt = (pte_t *)calloc(PGSIZE / sizeof(pte_t), sizeof(pte_t)); // calloc zeros entries
         if (!new_pt)
             return -1;
 
@@ -187,7 +248,7 @@ int map_page(pde_t *pgdir, void *va, void *pa)
         pde = pgdir[pd_index];
     }
 
-    pt = (pte_t *) U2VA((pde >> PFN_SHIFT) << PFN_SHIFT);
+    pt = (pte_t *)U2VA((pde >> PFN_SHIFT) << PFN_SHIFT);
 
     pte_ptr = &pt[pt_index];
 
@@ -195,7 +256,7 @@ int map_page(pde_t *pgdir, void *va, void *pa)
         return -1;
 
     *pte_ptr = (paddr & ~OFFMASK);
-    return -1; 
+    return 0;
 }
 
 // -----------------------------------------------------------------------------
@@ -214,8 +275,31 @@ int map_page(pde_t *pgdir, void *va, void *pa)
  */
 void *get_next_avail(int num_pages)
 {
-    // TODO: Implement virtual bitmap search for free pages.
-    return NULL; // No available block placeholder.
+    if (num_pages <= 0) return NULL;
+
+    uint32_t total_virt_pages = MAX_MEMSIZE / PGSIZE;
+    uint32_t start = 0, count = 0;
+
+    for (uint32_t i = 0; i < total_virt_pages; i++)
+    {
+        if (!virt_bitmap[i])
+        {
+            if (count == 0) start = i;
+            count++;
+            if (count == (uint32_t)num_pages)
+            {
+                for (uint32_t j = start; j < start + num_pages; j++)
+                    virt_bitmap[j] = 1;
+                return U2VA(start * PGSIZE);
+            }
+        }
+        else
+        {
+            count = 0;
+        }
+    }
+
+    return NULL;
 }
 
 /*
@@ -230,9 +314,59 @@ void *get_next_avail(int num_pages)
  */
 void *n_malloc(unsigned int num_bytes)
 {
-    // TODO: Determine required pages, allocate them, and map them.
-    return NULL; // Allocation failure placeholder.
+    if (!num_bytes || !phys_mem || !pgdir || !virt_bitmap || !phys_bitmap) return NULL;
+
+    int num_pages = (num_bytes + PGSIZE - 1) / PGSIZE;
+    void *va_base = get_next_avail(num_pages);
+    if (!va_base) return NULL;
+
+    int total_phys_pages = MEMSIZE / PGSIZE;
+    int allocated_pages[num_pages];
+
+    for (int i = 0; i < num_pages; i++)
+    {
+        allocated_pages[i] = -1;
+        for (int j = 0; j < total_phys_pages; j++)
+        {
+            if (!phys_bitmap[j])
+            {
+                phys_bitmap[j] = 1;
+                allocated_pages[i] = j;
+                break;
+            }
+        }
+
+        if (allocated_pages[i] == -1)
+        {
+            for (int k = 0; k < i; k++)
+            {
+                phys_bitmap[allocated_pages[k]] = 0;
+                void *rollback_va = (void *)((uintptr_t)va_base + k * PGSIZE);
+                pte_t *pte = translate(pgdir, rollback_va);
+                if (pte) *pte = 0;
+            }
+            return NULL;
+        }
+
+        void *va = (void *)((uintptr_t)va_base + i * PGSIZE);
+        void *pa = (void *)(allocated_pages[i] * PGSIZE);
+        if (map_page(pgdir, va, pa) != 0)
+        {
+            phys_bitmap[allocated_pages[i]] = 0;
+            for (int k = 0; k < i; k++)
+            {
+                void *rollback_va = (void *)((uintptr_t)va_base + k * PGSIZE);
+                pte_t *pte = translate(pgdir, rollback_va);
+                if (pte) *pte = 0;
+                phys_bitmap[allocated_pages[k]] = 0;
+            }
+            return NULL;
+        }
+    }
+
+    return va_base;
 }
+
 
 /*
  * n_free()
@@ -245,10 +379,38 @@ void *n_malloc(unsigned int num_bytes)
  */
 void n_free(void *va, int size)
 {
-    // TODO: Clear page table entries, update bitmaps, and invalidate TLB.
-    
+    if (!va || size <= 0)
+        return;
 
+    int num_pages = (size + PGSIZE - 1) / PGSIZE;
+    uintptr_t vaddr_base = (uintptr_t)va;
 
+    for (int i = 0; i < num_pages; i++)
+    {
+        void *curr_va = (void *)(vaddr_base + i * PGSIZE);
+        pte_t *pte = translate(pgdir, curr_va);
+        if (pte && *pte != 0)
+        {
+            uint32_t pfn = *pte >> PFN_SHIFT;
+            if (pfn < MEMSIZE / PGSIZE)
+                phys_bitmap[pfn] = 0;
+
+            *pte = 0;
+
+            uint32_t vpn = VA2U(curr_va) >> PFN_SHIFT;
+            if (vpn < MAX_MEMSIZE / PGSIZE)
+                virt_bitmap[vpn] = 0;
+
+            for (int j = 0; j < TLB_ENTRIES; j++)
+            {
+                if (tlbGlobal[j].valid && tlbGlobal[j].vpn == vpn)
+                {
+                    tlbGlobal[j].valid = false;
+                    break;
+                }
+            }
+        }
+    }
 }
 
 // -----------------------------------------------------------------------------
@@ -267,13 +429,32 @@ void n_free(void *va, int size)
  */
 int put_data(void *va, void *val, int size)
 {
-    // TODO: Walk virtual pages, translate to physical addresses,
-    // and copy data into simulated memory.
-    
+    if (!va || !val || size <= 0)
+        return -1;
 
+    uintptr_t src_offset = 0;
+    uintptr_t dst_va = (uintptr_t)va;
 
+    while (src_offset < (uintptr_t)size)
+    {
+        pte_t *pte = translate(pgdir, (void *)dst_va);
+        if (!pte || *pte == 0)
+            return -1;  
 
-    return -1; // Failure placeholder.
+        uintptr_t pfn = *pte >> PFN_SHIFT;
+        uintptr_t page_offset = dst_va & OFFMASK;
+        uintptr_t pa = (pfn << PFN_SHIFT) + page_offset;
+
+        int bytes_in_page = PGSIZE - page_offset;
+        int bytes_to_copy = (size - src_offset < (uintptr_t)bytes_in_page) ? size - src_offset : bytes_in_page;
+
+        memcpy((uint8_t *)phys_mem + pa, (uint8_t *)val + src_offset, bytes_to_copy);
+
+        src_offset += bytes_to_copy;
+        dst_va += bytes_to_copy;
+    }
+
+    return 0;
 }
 
 /*
@@ -286,8 +467,33 @@ int put_data(void *va, void *val, int size)
  */
 void get_data(void *va, void *val, int size)
 {
-    // TODO: Perform reverse operation of put_data().
-    //
+    if (!va || !val || size <= 0)
+        return;
+
+    uintptr_t dst_offset = 0;          
+    uintptr_t src_va = (uintptr_t)va;   
+
+    while (dst_offset < (uintptr_t)size)
+    {
+        pte_t *pte = translate(pgdir, (void *)src_va);
+        if (!pte || *pte == 0)
+        {
+            return;
+        }
+
+        uintptr_t pfn = *pte >> PFN_SHIFT;
+        uintptr_t page_offset = src_va & OFFMASK;
+        uintptr_t pa = (pfn << PFN_SHIFT) + page_offset;
+
+        int bytes_in_page = PGSIZE - page_offset;
+        int bytes_to_copy = (size - dst_offset < (uintptr_t)bytes_in_page) ? size - dst_offset : bytes_in_page;
+
+        memcpy((uint8_t *)val + dst_offset, (uint8_t *)phys_mem + pa, bytes_to_copy);
+
+        // Advance
+        dst_offset += bytes_to_copy;
+        src_va += bytes_to_copy;
+    }
 }
 
 // -----------------------------------------------------------------------------
@@ -305,21 +511,30 @@ void get_data(void *va, void *val, int size)
 void mat_mult(void *mat1, void *mat2, int size, void *answer)
 {
     int i, j, k;
-    uint32_t a, b, c;
+    int a_val, b_val, c_val;
 
-    for (i = 0; i < size; i++) {
-        for (j = 0; j < size; j++) {
-            c = 0;
-            for (k = 0; k < size; k++) {
-                // TODO: Compute addresses for mat1[i][k] and mat2[k][j].
-                // Retrieve values using get_data() and perform multiplication.
-                get_data(NULL, &a, sizeof(int));  // placeholder
-                get_data(NULL, &b, sizeof(int));  // placeholder
-                c += (a * b);
+    for (i = 0; i < size; i++)
+    {
+        for (j = 0; j < size; j++)
+        {
+            c_val = 0;
+
+            for (k = 0; k < size; k++)
+            {
+                void *addr1 = (void *)((uintptr_t)mat1 + (i * size + k) * sizeof(int));
+                void *addr2 = (void *)((uintptr_t)mat2 + (k * size + j) * sizeof(int));
+
+                a_val = 0;
+                b_val = 0;
+
+                get_data(addr1, &a_val, sizeof(int));
+                get_data(addr2, &b_val, sizeof(int));
+
+                c_val += a_val * b_val;
             }
-            // TODO: Store the result in answer[i][j] using put_data().
-            put_data(NULL, (void *)&c, sizeof(int)); // placeholder
+
+            void *addr_out = (void *)((uintptr_t)answer + (i * size + j) * sizeof(int));
+            put_data(addr_out, &c_val, sizeof(int));
         }
     }
 }
-
