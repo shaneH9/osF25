@@ -9,6 +9,7 @@ struct tlb tlbGlobal[TLB_ENTRIES];
 // Optional counters for TLB statistics
 static unsigned long long tlb_lookups = 0;
 static unsigned long long tlb_misses = 0;
+static uintptr_t next_virt_addr = 0;
 void *phys_mem = NULL;
 uint8_t *phys_bitmap = NULL;
 uint8_t *virt_bitmap = NULL;
@@ -180,34 +181,26 @@ void print_TLB_missrate(void)
  */
 pte_t *translate(pde_t *pgdir, void *va)
 {
-    vaddr32_t vaddr = VA2U(va);
-    uint32_t pdIndex = PDX(vaddr);
+    uintptr_t vaddr = (uintptr_t)va;
+    uint32_t pd_index = PDX(vaddr);
     uint32_t pt_index = PTX(vaddr);
 
     pte_t *pte = TLB_check(va);
-    if (pte != NULL)
-    {
+    if (pte)
         return pte;
-    }
 
-    pde_t pde = pgdir[pdIndex];
+    pde_t pde = pgdir[pd_index];
     if (pde == 0)
-    {
         return NULL;
-    }
 
-    pte_t *pt = (pte_t *)U2VA(pde);
+    pte_t *pt = (pte_t *)(phys_mem + (pde >> PFN_SHIFT) * PGSIZE);
+    pte = &pt[pt_index];
 
-    pte_t *pte_ptr = &pt[pt_index];
-
-    if (*pte_ptr == 0)
-    {
+    if (*pte == 0)
         return NULL;
-    }
 
-    TLB_add(va, U2VA(*pte_ptr));
-
-    return pte_ptr;
+    TLB_add(va, phys_mem + (*pte & ~OFFMASK));
+    return pte;
 }
 
 /*
@@ -222,40 +215,43 @@ pte_t *translate(pde_t *pgdir, void *va)
  */
 int map_page(pde_t *pgdir, void *va, void *pa)
 {
-    vaddr32_t vaddr = VA2U(va);
-    paddr32_t paddr = VA2U(pa);
-    uint32_t pd_index, pt_index;
-    pde_t pde;
-    pte_t *pt;
-    pte_t *pte_ptr;
-    pte_t *new_pt;
+    uintptr_t vaddr = (uintptr_t)va;
+    uintptr_t paddr = (uintptr_t)pa;
 
     if ((vaddr & OFFMASK) != 0 || (paddr & OFFMASK) != 0)
         return -1;
 
-    pd_index = PDX(vaddr);
-    pt_index = PTX(vaddr);
-
-    pde = pgdir[pd_index];
+    uint32_t pd_index = PDX(vaddr);
+    uint32_t pt_index = PTX(vaddr);
+    pde_t pde = pgdir[pd_index];
+    pte_t *pt;
 
     if (pde == 0)
     {
-        new_pt = (pte_t *)calloc(PGSIZE / sizeof(pte_t), sizeof(pte_t)); // calloc zeros entries
-        if (!new_pt)
+        // Allocate a page for the page table in physical memory
+        for (int i = 0; i < MEMSIZE / PGSIZE; i++)
+        {
+            if (!phys_bitmap[i])
+            {
+                phys_bitmap[i] = 1;
+                pt = (pte_t *)(phys_mem + i * PGSIZE);
+                memset(pt, 0, PGSIZE);
+                pgdir[pd_index] = i << PFN_SHIFT;
+                break;
+            }
+        }
+        if (pgdir[pd_index] == 0)
             return -1;
-
-        pgdir[pd_index] = VA2U((void *)new_pt) & ~OFFMASK;
-        pde = pgdir[pd_index];
+    }
+    else
+    {
+        pt = (pte_t *)(phys_mem + (pde >> PFN_SHIFT) * PGSIZE);
     }
 
-    pt = (pte_t *)U2VA((pde >> PFN_SHIFT) << PFN_SHIFT);
-
-    pte_ptr = &pt[pt_index];
-
-    if (*pte_ptr != 0)
+    if (pt[pt_index] != 0)
         return -1;
 
-    *pte_ptr = (paddr & ~OFFMASK);
+    pt[pt_index] = paddr & ~OFFMASK;
     return 0;
 }
 
@@ -275,31 +271,18 @@ int map_page(pde_t *pgdir, void *va, void *pa)
  */
 void *get_next_avail(int num_pages)
 {
-    if (num_pages <= 0) return NULL;
+    if (num_pages <= 0)
+        return NULL;
 
-    uint32_t total_virt_pages = MAX_MEMSIZE / PGSIZE;
-    uint32_t start = 0, count = 0;
+    uintptr_t base = next_virt_addr;
+    next_virt_addr += num_pages * PGSIZE;
 
-    for (uint32_t i = 0; i < total_virt_pages; i++)
+    for (int i = 0; i < num_pages; i++)
     {
-        if (!virt_bitmap[i])
-        {
-            if (count == 0) start = i;
-            count++;
-            if (count == (uint32_t)num_pages)
-            {
-                for (uint32_t j = start; j < start + num_pages; j++)
-                    virt_bitmap[j] = 1;
-                return U2VA(start * PGSIZE);
-            }
-        }
-        else
-        {
-            count = 0;
-        }
+        virt_bitmap[(base / PGSIZE) + i] = 1;
     }
 
-    return NULL;
+    return (void *)base;
 }
 
 /*
@@ -314,19 +297,22 @@ void *get_next_avail(int num_pages)
  */
 void *n_malloc(unsigned int num_bytes)
 {
-    if (!num_bytes || !phys_mem || !pgdir || !virt_bitmap || !phys_bitmap) return NULL;
+    if (!num_bytes || !phys_mem || !pgdir || !virt_bitmap || !phys_bitmap)
+        return NULL;
 
     int num_pages = (num_bytes + PGSIZE - 1) / PGSIZE;
     void *va_base = get_next_avail(num_pages);
-    if (!va_base) return NULL;
+    if (!va_base)
+        return NULL;
 
-    int total_phys_pages = MEMSIZE / PGSIZE;
     int allocated_pages[num_pages];
+    for (int i = 0; i < num_pages; i++)
+        allocated_pages[i] = -1;
 
     for (int i = 0; i < num_pages; i++)
     {
-        allocated_pages[i] = -1;
-        for (int j = 0; j < total_phys_pages; j++)
+        // find a free physical page
+        for (int j = 0; j < MEMSIZE / PGSIZE; j++)
         {
             if (!phys_bitmap[j])
             {
@@ -335,21 +321,22 @@ void *n_malloc(unsigned int num_bytes)
                 break;
             }
         }
-
         if (allocated_pages[i] == -1)
         {
+            // rollback allocated pages if no free page found
             for (int k = 0; k < i; k++)
             {
                 phys_bitmap[allocated_pages[k]] = 0;
                 void *rollback_va = (void *)((uintptr_t)va_base + k * PGSIZE);
                 pte_t *pte = translate(pgdir, rollback_va);
-                if (pte) *pte = 0;
+                if (pte)
+                    *pte = 0;
             }
             return NULL;
         }
 
         void *va = (void *)((uintptr_t)va_base + i * PGSIZE);
-        void *pa = (void *)(allocated_pages[i] * PGSIZE);
+        void *pa = phys_mem + allocated_pages[i] * PGSIZE;
         if (map_page(pgdir, va, pa) != 0)
         {
             phys_bitmap[allocated_pages[i]] = 0;
@@ -357,7 +344,8 @@ void *n_malloc(unsigned int num_bytes)
             {
                 void *rollback_va = (void *)((uintptr_t)va_base + k * PGSIZE);
                 pte_t *pte = translate(pgdir, rollback_va);
-                if (pte) *pte = 0;
+                if (pte)
+                    *pte = 0;
                 phys_bitmap[allocated_pages[k]] = 0;
             }
             return NULL;
@@ -366,7 +354,6 @@ void *n_malloc(unsigned int num_bytes)
 
     return va_base;
 }
-
 
 /*
  * n_free()
@@ -391,10 +378,11 @@ void n_free(void *va, int size)
         pte_t *pte = translate(pgdir, curr_va);
         if (pte && *pte != 0)
         {
-            uint32_t pfn = *pte >> PFN_SHIFT;
+            uintptr_t pa = *pte & ~OFFMASK;
+            uint32_t pfn = (pa - (uintptr_t)phys_mem) / PGSIZE;
+
             if (pfn < MEMSIZE / PGSIZE)
                 phys_bitmap[pfn] = 0;
-
             *pte = 0;
 
             uint32_t vpn = VA2U(curr_va) >> PFN_SHIFT;
@@ -439,7 +427,7 @@ int put_data(void *va, void *val, int size)
     {
         pte_t *pte = translate(pgdir, (void *)dst_va);
         if (!pte || *pte == 0)
-            return -1;  
+            return -1;
 
         uintptr_t pfn = *pte >> PFN_SHIFT;
         uintptr_t page_offset = dst_va & OFFMASK;
@@ -470,8 +458,8 @@ void get_data(void *va, void *val, int size)
     if (!va || !val || size <= 0)
         return;
 
-    uintptr_t dst_offset = 0;          
-    uintptr_t src_va = (uintptr_t)va;   
+    uintptr_t dst_offset = 0;
+    uintptr_t src_va = (uintptr_t)va;
 
     while (dst_offset < (uintptr_t)size)
     {
@@ -524,7 +512,7 @@ void mat_mult(void *mat1, void *mat2, int size, void *answer)
                 void *addr1 = (void *)((uintptr_t)mat1 + (i * size + k) * sizeof(int));
                 void *addr2 = (void *)((uintptr_t)mat2 + (k * size + j) * sizeof(int));
 
-                a_val = 0;
+                a_val = 0; 
                 b_val = 0;
 
                 get_data(addr1, &a_val, sizeof(int));
