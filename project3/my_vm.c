@@ -18,7 +18,7 @@ struct tlb tlbGlobal[TLB_ENTRIES];
 // Optional counters for TLB statistics
 static unsigned long long tlb_lookups = 0;
 static unsigned long long tlb_misses = 0;
-static uintptr_t next_virt_addr = VA_BASE; // start VAs at a non-zero base
+static uintptr_t next_virt_addr = VA_BASE; 
 void *phys_mem = NULL;
 uint8_t *phys_bitmap = NULL;
 uint8_t *virt_bitmap = NULL;
@@ -319,23 +319,26 @@ void *get_next_avail(int num_pages)
 
     pthread_mutex_lock(&vm_lock);
 
-    uint32_t start_page = (uint32_t)((next_virt_addr - VA_BASE) / PGSIZE);
+    uintptr_t base = next_virt_addr;
 
-    if (start_page + num_pages > (MAX_MEMSIZE / PGSIZE)) {
-        pthread_mutex_unlock(&vm_lock);
-        return NULL; // no more virtual pages available
+    // mark virtual pages as allocated
+    uint32_t start_page = (uint32_t)(base / PGSIZE);
+    for (int i = 0; i < num_pages; i++)
+    {
+        uint32_t idx = start_page + i;
+        if (idx >= (MAX_MEMSIZE / PGSIZE)) {
+            pthread_mutex_unlock(&vm_lock);
+            return NULL;
+        }
+        virt_bitmap[idx] = 1;
     }
 
-    // mark virt_bitmap
-    for (int i = 0; i < num_pages; i++)
-        virt_bitmap[start_page + i] = 1;
-
-    void *base = (void *)next_virt_addr;
     next_virt_addr += (uintptr_t)num_pages * PGSIZE;
 
     pthread_mutex_unlock(&vm_lock);
-    return base;
+    return (void *)base;
 }
+
 
 void *n_malloc(unsigned int num_bytes)
 {
@@ -443,40 +446,41 @@ void n_free(void *va, int size)
     for (int i = 0; i < num_pages; i++)
     {
         void *curr_va = (void *)(vaddr_base + i * PGSIZE);
-        pte_t *pte = translate(pgdir, curr_va);
-        if (pte && *pte != 0)
+
+        pte_t *pte = translate(pgdir, curr_va);   // translate() handles its own locking
+        if (!pte || *pte == 0)
+            continue;
+
+        uint32_t frame = (uint32_t)(*pte >> PFN_SHIFT);
+
+        // Free physical frame
+        pthread_mutex_lock(&vm_lock);
+        phys_bitmap[frame] = 0;
+        pthread_mutex_unlock(&vm_lock);
+
+        // Clear PTE
+        *pte = 0;
+
+        // Free virtual bitmap
+        uint32_t vpn = VA2U(curr_va) >> PFN_SHIFT;
+        pthread_mutex_lock(&vm_lock);
+        virt_bitmap[vpn] = 0;
+        pthread_mutex_unlock(&vm_lock);
+
+        // Invalidate TLB
+        pthread_mutex_lock(&tlb_lock);
+        for (int j = 0; j < TLB_ENTRIES; j++)
         {
-            uint32_t frame = (uint32_t)(*pte >> PFN_SHIFT);
-            if (frame < (MEMSIZE / PGSIZE))
+            if (tlbGlobal[j].valid && tlbGlobal[j].vpn == vpn)
             {
-                pthread_mutex_lock(&vm_lock);
-                phys_bitmap[frame] = 0;
-                pthread_mutex_unlock(&vm_lock);
+                tlbGlobal[j].valid = 0;
+                break;
             }
-            *pte = 0;
-
-            uint32_t vpn = VA2U(curr_va) >> PFN_SHIFT;
-            if (vpn < (MAX_MEMSIZE / PGSIZE))
-            {
-                pthread_mutex_lock(&vm_lock);
-                virt_bitmap[vpn] = 0;
-                pthread_mutex_unlock(&vm_lock);
-            }
-
-            // invalidate any TLB entry mapping this vpn
-            pthread_mutex_lock(&tlb_lock);
-            for (int j = 0; j < TLB_ENTRIES; j++)
-            {
-                if (tlbGlobal[j].valid && tlbGlobal[j].vpn == vpn)
-                {
-                    tlbGlobal[j].valid = false;
-                    break;
-                }
-            }
-            pthread_mutex_unlock(&tlb_lock);
         }
+        pthread_mutex_unlock(&tlb_lock);
     }
 }
+
 
 // -----------------------------------------------------------------------------
 // Data Movement
