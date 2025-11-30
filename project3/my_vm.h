@@ -1,3 +1,8 @@
+/*
+* Shane Haughton, sch141
+* Charles Escelman, cae131
+*/
+
 #ifndef MY_VM_H_INCLUDED
 #define MY_VM_H_INCLUDED
 

@@ -1,3 +1,7 @@
+/*
+* Shane Haughton, sch141
+* Charles Escelman, cae131
+*/
 #include "my_vm.h"
 #include <stdlib.h>
 #include <stdio.h>
