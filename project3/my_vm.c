@@ -49,7 +49,7 @@ static void ensure_vm_init(void)
     pthread_mutex_lock(&vm_lock);
     if (!vm_initialized)
     {
-        // allocate simulated physical memory
+
         phys_mem = calloc(1, MEMSIZE);
         if (!phys_mem)
         {
@@ -57,7 +57,7 @@ static void ensure_vm_init(void)
             exit(1);
         }
 
-        // physical bitmap: 1 bit per physical page
+        
         uint32_t num_phys_pages = MEMSIZE / PGSIZE;
         phys_bitmap = calloc((num_phys_pages + 7) / 8, 1);
         if (!phys_bitmap)
@@ -66,7 +66,7 @@ static void ensure_vm_init(void)
             exit(1);
         }
 
-        // virtual bitmap: 1 bit per virtual page in MAX_MEMSIZE
+        
         uint32_t num_virt_pages = (uint32_t)(MAX_MEMSIZE / PGSIZE);
         virt_bitmap = calloc((num_virt_pages + 7) / 8, 1);
         if (!virt_bitmap)
@@ -75,7 +75,7 @@ static void ensure_vm_init(void)
             exit(1);
         }
 
-        // page directory: 1024 entries (10 bits)
+       
         pgdir = calloc(1024, sizeof(pde_t));
         if (!pgdir)
         {
@@ -83,7 +83,7 @@ static void ensure_vm_init(void)
             exit(1);
         }
 
-        // init TLB
+     
         for (int i = 0; i < TLB_ENTRIES; i++)
         {
             tlbGlobal[i].vpn       = 0;
@@ -99,7 +99,7 @@ static void ensure_vm_init(void)
     pthread_mutex_unlock(&vm_lock);
 }
 
-// Provided API symbol – we just delegate to our init.
+
 void set_physical_mem(void)
 {
     ensure_vm_init();
@@ -136,7 +136,7 @@ int TLB_add(void *va, void *pa)
     }
     else
     {
-        // naive LRU: pick smallest last_used
+        
         idx = 0;
         uint64_t min = tlbGlobal[0].last_used;
         for (int i = 1; i < TLB_ENTRIES; i++)
@@ -160,7 +160,7 @@ int TLB_add(void *va, void *pa)
 
 pte_t *TLB_check(void *va)
 {
-    // va can be 0x40000000, etc. – no null check here.
+    
     vaddr32_t v   = VA2U(va);
     vaddr32_t vpn = v >> PFN_SHIFT;
 
@@ -172,7 +172,7 @@ pte_t *TLB_check(void *va)
             tlbGlobal[i].last_used = ++tlb_lookups;
             void *page_base = (uint8_t *)phys_mem + ((uintptr_t)tlbGlobal[i].pfn << PFN_SHIFT);
             pthread_mutex_unlock(&tlb_lock);
-            // return page base (we abuse type as pte_t*)
+            
             return (pte_t *)page_base;
         }
     }
@@ -215,10 +215,10 @@ pte_t *translate(pde_t *pgdir_root, void *va)
 
     ensure_vm_init();
 
-    // First check TLB
+    
     pte_t *tlb_page_base = TLB_check(va);
     if (tlb_page_base)
-        return tlb_page_base; // page base
+        return tlb_page_base; 
 
     vaddr32_t vaddr = VA2U(va);
 
@@ -239,10 +239,10 @@ pte_t *translate(pde_t *pgdir_root, void *va)
     uint32_t data_frame = pte >> PFN_SHIFT;
     void *page_base = (uint8_t *)phys_mem + ((uintptr_t)data_frame << PFN_SHIFT);
 
-    // Add to TLB
+   
     TLB_add(va, page_base);
 
-    // Return page base
+ 
     return (pte_t *)page_base;
 }
 
@@ -258,12 +258,12 @@ int map_page(pde_t *pgdir_root, void *va, void *pa)
 
     vaddr32_t vaddr = VA2U(va);
 
-    // IMPORTANT: for physical address alignment, use offset from phys_mem
+    
     uintptr_t p_raw  = (uintptr_t)pa;
-    uintptr_t p_off  = p_raw - (uintptr_t)phys_mem;  // simulated physical offset
+    uintptr_t p_off  = p_raw - (uintptr_t)phys_mem;  
 
     if ((vaddr & OFFMASK) || (p_off & OFFMASK))
-        return -1; // both VA and simulated PA must be page-aligned
+        return -1; 
 
     uint32_t pd_index = PDX(vaddr);
     uint32_t pt_index = PTX(vaddr);
@@ -275,7 +275,7 @@ int map_page(pde_t *pgdir_root, void *va, void *pa)
 
     if (!(pde & PTE_PRESENT))
     {
-        // allocate page table in physical memory
+       
         int pt_frame = alloc_phys_frame();
         if (pt_frame < 0)
         {
@@ -297,10 +297,10 @@ int map_page(pde_t *pgdir_root, void *va, void *pa)
     if (pt[pt_index] & PTE_PRESENT)
     {
         pthread_mutex_unlock(&vm_lock);
-        return -1; // already mapped
+        return -1; 
     }
 
-    // frame index is offset / PGSIZE
+    
     uint32_t frame_index = (uint32_t)(p_off / PGSIZE);
     pt[pt_index] = ((uintptr_t)frame_index << PFN_SHIFT) | PTE_PRESENT;
 
@@ -382,7 +382,7 @@ void *n_malloc(unsigned int num_bytes)
 
         if (frame < 0)
         {
-            // rollback phys frames
+            
             for (int k = 0; k < i; k++)
             {
                 if (allocated_frames[k] >= 0)
@@ -404,7 +404,7 @@ void *n_malloc(unsigned int num_bytes)
 
         if (map_page(pgdir, page_va, page_pa) != 0)
         {
-            // rollback frames
+         
             for (int k = 0; k <= i; k++)
             {
                 if (allocated_frames[k] >= 0)
@@ -453,12 +453,12 @@ void n_free(void *va, int size)
 
         uint32_t frame = pte >> PFN_SHIFT;
 
-        // free physical frame
+        
         pthread_mutex_lock(&vm_lock);
         BIT_CLEAR(phys_bitmap, frame);
         pthread_mutex_unlock(&vm_lock);
 
-        // free virtual page bit
+        
         int virt_index = (int)((curr_va32 - VA_BASE) / PGSIZE);
         if (virt_index >= 0)
         {
@@ -467,10 +467,10 @@ void n_free(void *va, int size)
             pthread_mutex_unlock(&vm_lock);
         }
 
-        // clear PTE
+       
         pt[pt_index] = 0;
 
-        // invalidate TLB
+        
         pthread_mutex_lock(&tlb_lock);
         uint32_t vpn = curr_va32 >> PFN_SHIFT;
         for (int j = 0; j < TLB_ENTRIES; j++)
@@ -498,7 +498,7 @@ int put_data(void *va, void *val, int size)
         vaddr32_t curr_va32 = VA2U(va) + (vaddr32_t)offset;
         void *curr_va = U2VA(curr_va32);
 
-        // translate returns page base
+     
         void *page_base = (void *)translate(pgdir, curr_va);
         if (!page_base)
             return -1;
