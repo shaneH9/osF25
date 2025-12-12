@@ -155,6 +155,8 @@ int main() {
         printf("Some Problem with free!\n");
     }
 
+    print_TLB_missrate(); 
+
     return 0;
 }
 
