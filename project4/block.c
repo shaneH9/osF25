@@ -7,6 +7,9 @@
  *
  */
 
+#define _FILE_OFFSET_BITS 64
+#define _GNU_SOURCE
+#define _DEFAULT_SOURCE
 #include <fcntl.h>
 #include <stdlib.h>
 #include <string.h>

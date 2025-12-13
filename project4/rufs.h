@@ -5,7 +5,14 @@
  *	File:	rufs.h
  *
  */
+#define _GNU_SOURCE
+#define _FILE_OFFSET_BITS 64
 
+#include <linux/limits.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <stdint.h>
 #include <linux/limits.h>
 #include <sys/stat.h>
 #include <unistd.h>
